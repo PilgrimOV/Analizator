@@ -10,9 +10,25 @@
 		461F61442E44A88B00BDD40D /* Analizator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Analizator.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		46925B092E463F2700EA666F /* Exceptions for "Analizator" folder in "Analizator" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				AnalysisTableView_old.swift,
+				ContentView_old.swift,
+				"Normal _old.sh",
+				Normal_old_last.sh,
+			);
+			target = 461F61432E44A88B00BDD40D /* Analizator */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		461F61462E44A88B00BDD40D /* Analizator */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				46925B092E463F2700EA666F /* Exceptions for "Analizator" folder in "Analizator" target */,
+			);
 			path = Analizator;
 			sourceTree = "<group>";
 		};

@@ -34,17 +34,37 @@ process_file() {
         [ -z "$bitrate" ] && bitrate="320k"
     fi
     
-    # Пропускаем MP3, если уже в норме
-    if [[ "$file" == *.mp3 ]] && (( $(echo "$input_lufs >= -15" | bc -l) )) && \
-       (( $(echo "$input_lufs <= -13.5" | bc -l) )) && (( $(echo "$input_tp <= 0.0" | bc -l) )); then
-        echo "✅✅ MP3 уже соответствует нормам. Пропускаем: $file"
-        return
+    # Пропускаем MP3, если уже в норме → теперь не просто пропускаем, а копируем с _New
+if [[ "$file" == *.mp3 ]] && (( $(echo "$input_lufs >= -15" | bc -l) )) && \
+   (( $(echo "$input_lufs <= -13.5" | bc -l) )) && (( $(echo "$input_tp <= 0.0" | bc -l) )); then
+    echo "✅✅ MP3 уже соответствует нормам. Делаем копию с _New: $file"
+
+    # Имя выходного файла
+    output_file="${file%.*}_New.mp3"
+    if [ -e "$output_file" ]; then
+        output_file="${file%.*}_New1.mp3"
     fi
+
+    # Копируем без перекодирования
+    cp "$file" "$output_file"
+
+    # Проверяем результат
+    if [ ! -f "$output_file" ]; then
+        echo "❌ Ошибка: Не удалось скопировать файл: $output_file" >&2
+        echo "###RESULT file=\"$file\" method=\"Ошибка\" lufs=\"?\" tp=\"?\" status=\"❌\""
+        echo "$file" >> error.log
+    else
+        echo "🗂️🗂️ СОЗДАНА КОПИЯ ФАЙЛА: $output_file"
+        echo "###RESULT file=\"$file\" method=\"Копия\" lufs=\"$input_lufs\" tp=\"$input_tp\" status=\"✅\""
+    fi
+    return
+fi
     
     # Если M4A в норме — просто кодируем в MP3 320 без изменения уровней
     if [[ "$file" == *.m4a ]] && (( $(echo "$input_lufs >= -15" | bc -l) )) && \
        (( $(echo "$input_lufs <= -13.5" | bc -l) )) && (( $(echo "$input_tp <= -0.4" | bc -l) )); then
         echo "✅ M4A соответствует нормам, кодируем в MP3 320 CBR без изменения уровней."
+        echo "###RESULT file=\"$file\" method=\"M4A → MP3\" lufs=\"$input_lufs\" tp=\"$input_tp\" status=\"🟢\""
         filter="volume=0dB"
     else
         # === НОВАЯ ЛОГИКА ВЫБОРА ФИЛЬТРА ===
@@ -59,8 +79,9 @@ if (( $(echo "$adj_14 > 0" | bc -l) )) && (( $(echo "$input_tp > $tp_fix" | bc -
     g_down=$(echo "scale=3; $tp_fix - ($input_tp)" | bc -l)
     I_after_down=$(echo "scale=3; $input_lufs + $g_down" | bc -l)
 
-    if (( $(echo "$I_after_down >= -15.5" | bc -l) )); then
+    if (( $(echo "$I_after_down >= -15" | bc -l) )); then
         echo "🟡 TP выше порога TP>${tp_fix} dBTP → линейно уменьшаем на ${g_down} dB → ≈ ${I_after_down} LUFS, TP ≈ ${tp_fix} dBTP."
+        echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"$I_after_down\" tp=\"$tp_fix\" status=\"🟢\""
         filter="volume=${g_down}dB"
     fi
 fi
@@ -76,13 +97,18 @@ if (( $(echo "$adj_14 <= 0" | bc -l) )); then
         extra_down=$(echo "scale=3; $predTP_after_down14 - ($tp_thresh)" | bc -l)
         new_adj=$(echo "scale=3; $adj_14 - $extra_down" | bc -l)
         echo "🟡 Снизить до -14 LUFS нельзя (прогноз $predTP_after_down14 dBTP) — снижаем ещё на $extra_down dB; итоговое уменьшение $new_adj dB."
+        lufs_after=$(echo "scale=3; $input_lufs + $new_adj" | bc -l)
+        tp_after=$(echo "scale=3; $input_tp + $new_adj" | bc -l)
+        echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"$lufs_after\" tp=\"$tp_after\" status=\"🟡\""
+         filter="volume=${new_adj}dB"
         filter="volume=${new_adj}dB"
     else
         echo "✅ Снизили до -14 LUFS (${adj_14} dB), TP после = ${predTP_after_down14} dBTP."
+        echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"-14\" tp=\"$predTP_after_down14\" status=\"🟢\""
         filter="volume=${adj_14}dB"
     fi
 
-                # Файл тихий: пытаемся поднять линейно (максимально, не нарушая TP, в коридоре [-15.5; -14] LUFS)
+                # Файл тихий: пытаемся поднять линейно (максимально, не нарушая TP, в коридоре [-15; -14] LUFS)
         else
             tp_thresh="-0.4"  # твой порог для подъёма
 
@@ -92,6 +118,8 @@ if (( $(echo "$adj_14 <= 0" | bc -l) )); then
             if (( $(echo "$gTPmax <= 0" | bc -l) )); then
                 # Вообще нельзя поднимать без нарушения TP → двухпроходный loudnorm
                 echo "⚠️ Поднимать линейно нельзя (gTPmax=${gTPmax} dB, TP-порог ${tp_thresh} dBTP). Запускаем двухпроходный loudnorm."
+                echo "###RESULT file=\"$file\" method=\"Двухпроход\" lufs=\"-15\" tp=\"-0.7\" status=\"🔴\""
+
                 json=$(ffmpeg -hide_banner -i "$file" -af "loudnorm=i=-15:lra=12:tp=-0.7:print_format=json" -f null - 2>&1)
                 measured_I=$(echo "$json" | awk -F'\"' '/\"input_i\"/ {print $4}')
                 measured_TP=$(echo "$json" | awk -F'\"' '/\"input_tp\"/ {print $4}')
@@ -112,12 +140,14 @@ if (( $(echo "$adj_14 <= 0" | bc -l) )); then
                 I_lin=$(echo "scale=3; $input_lufs + $g_lin" | bc -l)
                 TP_lin=$(echo "scale=3; $input_tp + $g_lin" | bc -l)
 
-                # Принимаем линейный подъём, только если попадаем хотя бы в -15.5 LUFS
-                if (( $(echo "$I_lin >= -15.5" | bc -l) )); then
+                # Принимаем линейный подъём, только если попадаем хотя бы в -15 LUFS
+                if (( $(echo "$I_lin >= -15" | bc -l) )); then
                     echo "✅ Подняли на ${g_lin} dB: целевой ≈ ${I_lin} LUFS (максимально близко к -14), TP после ≈ ${TP_lin} dBTP."
+                    echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"$I_lin\" tp=\"$TP_lin\" status=\"🟡\""
                     filter="volume=${g_lin}dB"
                 else
-                    echo "⚠️ Даже максимально допустимый по TP подъём даёт лишь ${I_lin} LUFS (< -15.5). Запускаем двухпроходный loudnorm."
+                    echo "⚠️ Даже максимально допустимый по TP подъём даёт лишь ${I_lin} LUFS (< -15). Запускаем двухпроходный loudnorm."
+                    echo "###RESULT file=\"$file\" method=\"Двухпроход\" lufs=\"-15\" tp=\"-0.7\" status=\"🔴\""
                     json=$(ffmpeg -hide_banner -i "$file" -af "loudnorm=i=-15:lra=12:tp=-0.7:print_format=json" -f null - 2>&1)
                     measured_I=$(echo "$json" | awk -F'\"' '/\"input_i\"/ {print $4}')
                     measured_TP=$(echo "$json" | awk -F'\"' '/\"input_tp\"/ {print $4}')
@@ -152,6 +182,7 @@ if (( $(echo "$adj_14 <= 0" | bc -l) )); then
     if [ ! -f "$output_file" ]; then
         echo "❌ Ошибка: Не удалось создать файл: $output_file" >&2
         echo "$file" >> error.log
+        echo "###RESULT file=\"$file\" method=\"Ошибка\" lufs=\"?\" tp=\"?\" status=\"❌\""
     else
         echo "🗂️🗂️ СОЗДАН НОВЫЙ ФАЙЛ: $output_file"
     fi

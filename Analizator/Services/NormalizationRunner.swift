@@ -9,6 +9,7 @@ import Foundation
 
 // MARK: - Сервис для нормализации
 class NormalizationRunner {
+    @Published var results: [NormalizationResult] = []
     
     // MARK: - Запуск нормализации
     static func run(selectedRootFolder: URL?, 
@@ -254,4 +255,26 @@ class NormalizationRunner {
         if t.hasPrefix("./") { t.removeFirst(2) }
         return root.appendingPathComponent(t)
     }
+}
+
+private func parseResultLine(_ line: String) -> NormalizationResult? {
+    guard line.hasPrefix("###RESULT") else { return nil }
+
+    func extract(_ key: String) -> String {
+        if let range = line.range(of: "\(key)=\"") {
+            let start = line[range.upperBound...]
+            if let end = start.firstIndex(of: "\"") {
+                return String(start[..<end])
+            }
+        }
+        return "?"
+    }
+
+    let file = extract("file")
+    let method = extract("method")
+    let lufs = extract("lufs")
+    let tp = extract("tp")
+    let status = extract("status")
+
+    return NormalizationResult(file: file, method: method, lufs: lufs, tp: tp, status: status)
 }

@@ -83,18 +83,20 @@ class FileOps {
             .filter { allowedExtensions.contains($0.pathExtension.lowercased()) }
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
         
-        var index = 1
+        // Сколько разрядов нужно для корректной лексикографической сортировки (минимум 2)
+                let digits = max(2, String(max(audioFiles.count, 1)).count)
+                var index = 1
         var renamed: [(old: URL, new: URL)] = []
         
         for oldURL in audioFiles {
             let ext = oldURL.pathExtension
-            var base = "Аудио_\(index)"
+            var base = "Аудио_\(String(format: "%0*d", digits, index))"
             var newURL = root.appendingPathComponent(base).appendingPathExtension(ext)
             
             // Если имя занято, просто переходим к следующему номеру
             while fm.fileExists(atPath: newURL.path) {
                 index += 1
-                base = "Аудио_\(index)"
+                base = "Аудио_\(String(format: "%0*d", digits, index))"
                 newURL = root.appendingPathComponent(base).appendingPathExtension(ext)
             }
             

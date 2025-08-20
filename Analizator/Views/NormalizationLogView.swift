@@ -3,7 +3,7 @@
 //  Analizator
 //
 //  Created by Виктор Обухов on 07.08.2025.
-// 1111
+// 
 
 import SwiftUI
 

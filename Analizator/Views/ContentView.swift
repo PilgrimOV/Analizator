@@ -4,12 +4,15 @@ import UniformTypeIdentifiers
 
 // MARK: - Основной интерфейс
 struct ContentView: View {
-    @StateObject private var model = AnalyzerModel()
+    // ДВЕ модели: анализ + нормализация
+    @StateObject private var analysis = AnalyzerModel()        // только анализ
+    @StateObject private var norm     = NormalizationModel()   // только нормализация
+    
     enum Tab { case analysis, normalization }
     @State private var selectedTab: Tab = .analysis
     @State private var sortDescriptor = AnalysisTableView.SortDescriptor(column: .file, ascending: true)
     
-    private var selectedRootFolder: URL? { model.commonParent(of: model.selectedFiles) }
+    private var selectedRootFolder: URL? { analysis.commonParent(of: analysis.selectedFiles) }
     
     var body: some View {
         HStack(spacing: 0) {
@@ -28,9 +31,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 
-                Button {
-                    addAllFromCurrentFolder()
-                } label: {
+                Button { addAllFromCurrentFolder() } label: {
                     Label("Добавить все файлы из папки", systemImage: "plus.rectangle.on.folder")
                 }
                 .buttonStyle(.bordered)
@@ -38,7 +39,7 @@ struct ContentView: View {
                 
                 // Строка "Выбрано файлов" + бейдж папки
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Выбрано файлов: \(model.selectedFiles.count)")
+                    Text("Выбрано файлов: \(analysis.selectedFiles.count)")
                         .font(.callout).foregroundStyle(.secondary)
                     
                     if let root = selectedRootFolder {
@@ -46,11 +47,11 @@ struct ContentView: View {
                             Image(systemName: "folder.fill").foregroundColor(.accentColor)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(root.lastPathComponent).font(.callout).bold()
-                                Text(model.displayPath(for: root))
+                                Text(analysis.displayPath(for: root))
                                     .font(.caption2).foregroundColor(.secondary)
                             }
                             Spacer(minLength: 6)
-                            Button { model.revealInFinder(root) } label: {
+                            Button { analysis.revealInFinder(root) } label: {
                                 Image(systemName: "magnifyingglass")
                             }
                             .buttonStyle(.borderless).help("Показать в Finder")
@@ -60,29 +61,29 @@ struct ContentView: View {
                     }
                 }
                 
-                if model.isAnalyzing {
-                    ProgressView(value: Double(model.progressDone),
-                                 total: Double(max(model.selectedFiles.count, 1))) {
+                if analysis.isAnalyzing {
+                    ProgressView(value: Double(analysis.progressDone),
+                                 total: Double(max(analysis.selectedFiles.count, 1))) {
                         Text("Анализ…")
                     } currentValueLabel: {
-                        Text("\(model.progressDone)/\(model.selectedFiles.count)")
+                        Text("\(analysis.progressDone)/\(analysis.selectedFiles.count)")
                     }
                 }
                 
                 HStack {
                     Button {
-                        selectedTab = .analysis        // 👈 переключаемся на вкладку Анализ
-                        model.analyzeAllFiles()
+                        selectedTab = .analysis
+                        analysis.analyzeAllFiles()
                     } label: {
                         Label("Анализировать", systemImage: "play.fill")
                     }
-                    .disabled(model.isAnalyzing || model.selectedFiles.isEmpty || model.ffmpegOK == false)
+                    .disabled(analysis.isAnalyzing || analysis.selectedFiles.isEmpty || analysis.ffmpegOK == false)
                     
                     Button("🔍 Проверить данные") {
                         Swift.print("=== ДИАГНОСТИКА ДАННЫХ ===")
-                        Swift.print("selectedFiles.count: \(model.selectedFiles.count)")
-                        Swift.print("analysisResults.count: \(model.analysisResults.count)")
-                        for (i, r) in model.analysisResults.enumerated() {
+                        Swift.print("selectedFiles.count: \(analysis.selectedFiles.count)")
+                        Swift.print("analysisResults.count: \(analysis.analysisResults.count)")
+                        for (i, r) in analysis.analysisResults.enumerated() {
                             Swift.print("[\(i)] \(r.fileURL.lastPathComponent)")
                             Swift.print("    LUFS: '\(r.lufs ?? "NIL")'")
                             Swift.print("    TP:   '\(r.truePeak ?? "NIL")'")
@@ -93,62 +94,59 @@ struct ContentView: View {
                         Swift.print("=== КОНЕЦ ДИАГНОСТИКИ ===")
                     }
                     .buttonStyle(.bordered)
-                    .disabled(model.analysisResults.isEmpty)
+                    .disabled(analysis.analysisResults.isEmpty)
                     
-                    Button { model.stopAnalyzing = true } label: {
+                    Button { analysis.stopAnalyzing = true } label: {
                         Label("Остановить", systemImage: "stop.fill")
                     }
-                    .disabled(!model.isAnalyzing)
+                    .disabled(!analysis.isAnalyzing)
                 }
                 .buttonStyle(.bordered)
                 
-                Button(role: .destructive) { model.clearList() } label: {
+                Button(role: .destructive) { analysis.clearList() } label: {
                     Label("Очистить список", systemImage: "trash")
                 }
-                .disabled(model.isAnalyzing || model.selectedFiles.isEmpty)
+                .disabled(analysis.isAnalyzing || analysis.selectedFiles.isEmpty)
                 .buttonStyle(.bordered)
                 
                 Divider().padding(.vertical, 2)
                 
-                // Нормализация + Стоп (НЕ ТРОГАЛ)
+                // Нормализация + Стоп (через отдельную модель)
                 HStack {
                     Button {
-                        selectedTab = .normalization   // 👈 переключаемся на вкладку Нормализация
-                        model.runNormalization(selectedRootFolder: selectedRootFolder)
+                        selectedTab = .normalization
+                        norm.run(selectedRootFolder: selectedRootFolder)
                     } label: {
                         Label("Нормализовать", systemImage: "dial.max.fill")
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.isNormalizing || selectedRootFolder == nil || model.ffmpegOK == false)
-
-                    Button { model.stopNormalization() } label: {
+                    .disabled(norm.isNormalizing || selectedRootFolder == nil || analysis.ffmpegOK == false)
+                    
+                    Button { norm.stop() } label: {
                         Label("Стоп", systemImage: "stop.circle.fill")
                     }
-                    .buttonStyle(.bordered).disabled(!model.isNormalizing)
+                    .buttonStyle(.bordered)
+                    .disabled(!norm.isNormalizing)
                 }
                 
                 // Переименование файлов в выбранной папке
-                Button {
-                    renameAllInSelectedFolder()
-                } label: {
+                Button { renameAllInSelectedFolder() } label: {
                     Label("Переименовать все файлы в папке", systemImage: "textformat.alt")
                 }
                 .buttonStyle(.bordered)
-                .disabled(selectedRootFolder == nil || model.isAnalyzing || model.isNormalizing)
+                .disabled(selectedRootFolder == nil || analysis.isAnalyzing || norm.isNormalizing)
                 .help("Переименовать файлы в «\(selectedRootFolder?.lastPathComponent ?? "…")» как Аудио_1, Аудио_2, …")
                 
-                // Удаление «старых» файлов без суффикса _New из выбранной папки (только текущая папка)
-                Button {
-                    deleteOldFilesInSelectedFolder()
-                } label: {
+                // Удаление «старых» файлов
+                Button { deleteOldFilesInSelectedFolder() } label: {
                     Label("Удалить старые файлы", systemImage: "trash.slash")
                 }
                 .buttonStyle(.bordered)
                 .tint(.red)
-                .disabled(selectedRootFolder == nil || model.isAnalyzing || model.isNormalizing)
+                .disabled(selectedRootFolder == nil || analysis.isAnalyzing || norm.isNormalizing)
                 .help("Отправить в корзину все файлы БЕЗ суффикса _New в «\(selectedRootFolder?.lastPathComponent ?? "…")». Работает только в этой папке, без подпапок.")
                 
-                if let ffmpegOK = model.ffmpegOK, ffmpegOK == false {
+                if let ffmpegOK = analysis.ffmpegOK, ffmpegOK == false {
                     ffmpegNotFoundView
                 }
                 
@@ -185,7 +183,7 @@ struct ContentView: View {
                 Divider()
                 
                 if selectedTab == .analysis {
-                    Text("rows: \(model.analysisResults.count)")
+                    Text("rows: \(analysis.analysisResults.count)")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     AnalysisTableView(
@@ -195,15 +193,23 @@ struct ContentView: View {
                     )
                     .background(Color(nsColor: .windowBackgroundColor))
                 } else {
-                    NormalizationLogView(log: model.normalizationLog, isProcessing: model.isNormalizing)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color(nsColor: .windowBackgroundColor))
+                    VStack(alignment: .leading, spacing: 6) {
+                        NormalizationTableView(results: norm.results)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        HStack(spacing: 12) {
+                            if norm.isNormalizing { ProgressView() }
+                            Text("Создано новых файлов: \(norm.createdCount)")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12).padding(.bottom, 8)
+                    }
+                    .background(Color(nsColor: .windowBackgroundColor))
                 }
             }
             .onDrop(of: [UTType.fileURL], isTargeted: nil, perform: handleDrop)
         }
         .frame(minWidth: 1024, minHeight: 600)
-        .onAppear { model.ffmpegOK = model.isFFmpegInstalled() }
+        .onAppear { analysis.ffmpegOK = analysis.isFFmpegInstalled() }
     }
     
     // MARK: - Вспомогательные View
@@ -229,8 +235,8 @@ struct ContentView: View {
     
     // MARK: - Табличные данные (сортировка)
     private func sortedResultsForTable() -> [AudioAnalysisResult] {
-        Swift.print("📊 Сортируем таблицу. Всего результатов: \(model.analysisResults.count)")
-        var list = model.analysisResults
+        Swift.print("📊 Сортируем таблицу. Всего результатов: \(analysis.analysisResults.count)")
+        var list = analysis.analysisResults
         switch sortDescriptor.column {
         case .status:
             list.sort { sortDescriptor.ascending ? $0.statusPriority < $1.statusPriority : $0.statusPriority > $1.statusPriority }
@@ -271,7 +277,7 @@ struct ContentView: View {
         return list
     }
     
-    // MARK: - DnD и выбор
+    // MARK: - DnD и выбор (работаем с analysis)
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         let group = DispatchGroup()
         var allNewFiles: [URL] = []
@@ -282,7 +288,7 @@ struct ContentView: View {
                 defer { group.leave() }
                 guard let data = item as? Data,
                       let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
-                model.collectFiles(from: url, into: &allNewFiles)
+                analysis.collectFiles(from: url, into: &allNewFiles)
             }
         }
         group.notify(queue: .main) { appendSelected(files: allNewFiles) }
@@ -297,95 +303,79 @@ struct ContentView: View {
         panel.prompt = "Выбрать"
         if panel.runModal() == .OK {
             var files: [URL] = []
-            for url in panel.urls { model.collectFiles(from: url, into: &files) }
+            for url in panel.urls { analysis.collectFiles(from: url, into: &files) }
             appendSelected(files: files)
         }
     }
     
     private func appendSelected(files: [URL]) {
-        let filtered = files.filter { model.allowedExtensions.contains($0.pathExtension.lowercased()) }
+        let filtered = files.filter { analysis.allowedExtensions.contains($0.pathExtension.lowercased()) }
         for url in filtered {
             let u = url.standardizedFileURL.resolvingSymlinksInPath()
-            if !model.selectedFiles.map({ $0.path }).contains(u.path) {
-                model.selectedFiles.append(u)
-                model.analysisResults.append(AudioAnalysisResult(
+            if !analysis.selectedFiles.map({ $0.path }).contains(u.path) {
+                analysis.selectedFiles.append(u)
+                analysis.analysisResults.append(AudioAnalysisResult(
                     fileURL: u, lufs: nil, lra: nil, truePeak: nil, sampleRate: nil, status: .unknown
                 ))
             }
         }
-        Swift.print("[UPDATE] Добавили файлов: \(filtered.count). Всего: \(model.selectedFiles.count)")
+        Swift.print("[UPDATE] Добавили файлов: \(filtered.count). Всего: \(analysis.selectedFiles.count)")
     }
     
     private func addAllFromCurrentFolder() {
         guard let root = selectedRootFolder else { return }
         var files: [URL] = []
-        model.collectFiles(from: root, into: &files)   // рекурсивно собираем все аудиофайлы
-        appendSelected(files: files)                   // добавляем только недостающие
+        analysis.collectFiles(from: root, into: &files)   // рекурсивно собираем все аудиофайлы
+        appendSelected(files: files)                      // добавляем только недостающие
     }
     
-    // ⬇️ Переименовать все файлы в выбранной папке (только верхний уровень папки)
+    // Переименование в выбранной папке
     private func renameAllInSelectedFolder() {
         guard let root = selectedRootFolder else { return }
-
-        // Работаем в фоне, чтобы не подвисал UI
         DispatchQueue.global(qos: .userInitiated).async {
-            let renamed = FileOps.renameAllInSelectedFolder(root: root, allowedExtensions: model.allowedExtensions)
-
-            // Обновляем данные в модели одним махом — уже на главном потоке
+            let renamed = FileOps.renameAllInSelectedFolder(root: root, allowedExtensions: analysis.allowedExtensions)
             DispatchQueue.main.async {
                 guard !renamed.isEmpty else { return }
-
-                // 1) Заменим пути в selectedFiles
+                // 1) selectedFiles
                 for (old, new) in renamed {
-                    if let i = model.selectedFiles.firstIndex(where: {
+                    if let i = analysis.selectedFiles.firstIndex(where: {
                         $0.standardizedFileURL.resolvingSymlinksInPath().path ==
                         old.standardizedFileURL.resolvingSymlinksInPath().path
                     }) {
-                        model.selectedFiles[i] = new
+                        analysis.selectedFiles[i] = new
                     }
                 }
-
-                // 2) Заменим fileURL в analysisResults (пересоберём элемент — fileURL у структуры 'let')
+                // 2) analysisResults
                 for (old, new) in renamed {
-                    if let j = model.analysisResults.firstIndex(where: { $0.fileURL.path == old.path }) {
-                        let r = model.analysisResults[j]
-                        model.analysisResults[j] = AudioAnalysisResult(
+                    if let j = analysis.analysisResults.firstIndex(where: { $0.fileURL.path == old.path }) {
+                        let r = analysis.analysisResults[j]
+                        analysis.analysisResults[j] = AudioAnalysisResult(
                             fileURL: new,
                             lufs: r.lufs, lra: r.lra, truePeak: r.truePeak,
                             sampleRate: r.sampleRate, status: r.status
                         )
                     }
                 }
-
                 Swift.print("[RENAME] Переименовано файлов:", renamed.count)
             }
         }
     }
     
-    // ⬇️ Удалить (в корзину) все файлы БЕЗ суффикса _New в выбранной папке (не рекурсивно)
+    // Удалить старые файлы (без _New) в выбранной папке (не рекурсивно)
     private func deleteOldFilesInSelectedFolder() {
         guard let root = selectedRootFolder else { return }
-
-        // Работаем в фоне, чтобы не подвисал UI
         DispatchQueue.global(qos: .userInitiated).async {
-            let trashed = FileOps.deleteOldFilesInSelectedFolder(root: root, allowedExtensions: model.allowedExtensions)
-
-            // Обновляем данные модели на главном потоке
+            let trashed = FileOps.deleteOldFilesInSelectedFolder(root: root, allowedExtensions: analysis.allowedExtensions)
             DispatchQueue.main.async {
                 guard !trashed.isEmpty else { return }
-
-                // Удаляем удалённые файлы из selectedFiles
-                model.selectedFiles.removeAll { u in
+                analysis.selectedFiles.removeAll { u in
                     let p = u.standardizedFileURL.resolvingSymlinksInPath().path
                     return trashed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == p }
                 }
-
-                // И из analysisResults
-                model.analysisResults.removeAll { r in
+                analysis.analysisResults.removeAll { r in
                     let p = r.fileURL.standardizedFileURL.resolvingSymlinksInPath().path
                     return trashed.contains { $0.standardizedFileURL.resolvingSymlinksInPath().path == p }
                 }
-
                 Swift.print("[TRASH] В корзину отправлено:", trashed.count)
             }
         }

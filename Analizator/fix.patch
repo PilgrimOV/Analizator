@@ -1,0 +1,49 @@
+*** a/Normal.sh
+--- b/Normal.sh
+@@
+     if [[ "$file" == *.m4a ]] && (( $(echo "$input_lufs >= -15" | bc -l) )) && \
+        (( $(echo "$input_lufs <= -13.5" | bc -l) )) && (( $(echo "$input_tp <= -0.4" | bc -l) )); then
+         echo "✅ M4A соответствует нормам, кодируем в MP3 320 CBR без изменения уровней."
+-        echo "###RESULT file=\"$file\" method=\"M4A → MP3\" lufs=\"$I_lin\" tp=\"$TP_lin\" status=\"🟢\""
++        # используем входные измерения как результат
++        echo "###RESULT file=\"$file\" method=\"M4A → MP3\" lufs=\"$input_lufs\" tp=\"$input_tp\" status=\"🟢\""
+         filter="volume=0dB"
+     else
+@@
+ if (( $(echo "$adj_14 > 0" | bc -l) )) && (( $(echo "$input_tp > $tp_fix" | bc -l) )); then
+@@
+-    if (( $(echo "$I_after_down >= -15" | bc -l) )); then
++    if (( $(echo "$I_after_down >= -15" | bc -l) )); then
+         echo "🟡 TP выше порога TP>${tp_fix} dBTP → линейно уменьшаем на ${g_down} dB → ≈ ${I_after_down} LUFS, TP ≈ ${tp_fix} dBTP."
+-        echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"$I_lin\" tp=\"$TP_lin\" status=\"🟢\""
++        echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"$I_after_down\" tp=\"$tp_fix\" status=\"🟢\""
+         filter="volume=${g_down}dB"
+     fi
+ fi
+@@
+-    if (( $(echo "$predTP_after_down14 > $tp_thresh" | bc -l) )); then
++    if (( $(echo "$predTP_after_down14 > $tp_thresh" | bc -l) )); then
+@@
+-        echo "🟡 Снизить до -14 LUFS нельзя (прогноз $predTP_after_down14 dBTP) — снижаем ещё на $extra_down dB; итоговое уменьшение $new_adj dB."
+-        echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"$I_lin\" tp=\"$TP_lin\" status=\"🟡\""
++        echo "🟡 Снизить до -14 LUFS нельзя (прогноз $predTP_after_down14 dBTP) — снижаем ещё на $extra_down dB; итоговое уменьшение $new_adj dB."
++        lufs_after=$(echo "scale=3; $input_lufs + $new_adj" | bc -l)
++        tp_after=$(echo "scale=3; $input_tp + $new_adj" | bc -l)
++        echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"$lufs_after\" tp=\"$tp_after\" status=\"🟡\""
+         filter="volume=${new_adj}dB"
+     else
+         echo "✅ Снизили до -14 LUFS (${adj_14} dB), TP после = ${predTP_after_down14} dBTP."
+-        echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"$I_lin\" tp=\"$TP_lin\" status=\"🟢\""
++        echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"-14\" tp=\"$predTP_after_down14\" status=\"🟢\""
+         filter="volume=${adj_14}dB"
+     fi
+@@
+-                echo "⚠️ Поднимать линейно нельзя (gTPmax=${gTPmax} dB, TP-порог ${tp_thresh} dBTP). Запускаем двухпроходный loudnorm."
+-                echo "###RESULT file=\"$file\" method=\"Двухпроход\" lufs=\"$I_lin\" tp=\"$TP_lin\" status=\"🔴\""
++                echo "⚠️ Поднимать линейно нельзя (gTPmax=${gTPmax} dB, TP-порог ${tp_thresh} dBTP). Запускаем двухпроходный loudnorm."
++                echo "###RESULT file=\"$file\" method=\"Двухпроход\" lufs=\"-15\" tp=\"-0.7\" status=\"🔴\""
+@@
+-                    echo "⚠️ Даже максимально допустимый по TP подъём даёт лишь ${I_lin} LUFS (< -15). Запускаем двухпроходный loudnorm."
+-                    echo "###RESULT file=\"$file\" method=\"Двухпроход\" lufs=\"$I_lin\" tp=\"$TP_lin\" status=\"🔴\""
++                    echo "⚠️ Даже максимально допустимый по TP подъём даёт лишь ${I_lin} LUFS (< -15). Запускаем двухпроходный loudnorm."
++                    echo "###RESULT file=\"$file\" method=\"Двухпроход\" lufs=\"-15\" tp=\"-0.7\" status=\"🔴\""

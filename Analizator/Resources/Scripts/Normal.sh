@@ -86,8 +86,8 @@ if (( $(echo "$adj_14 > 0" | bc -l) )) && (( $(echo "$input_tp > $tp_fix" | bc -
     fi
 fi
         
-        # Если файл громче цели (-14) — понижаем линейно с учётом TP-порога
-        if [ -z "$filter" ]; then
+       # Если файл громче цели (-14) — понижаем линейно с учётом TP-порога
+if [ -z "$filter" ]; then
 if (( $(echo "$adj_14 <= 0" | bc -l) )); then
     tp_thresh="-0.4"
     predTP_after_down14=$(echo "scale=3; $input_tp + $adj_14" | bc -l)
@@ -99,9 +99,24 @@ if (( $(echo "$adj_14 <= 0" | bc -l) )); then
         echo "🟡 Снизить до -14 LUFS нельзя (прогноз $predTP_after_down14 dBTP) — снижаем ещё на $extra_down dB; итоговое уменьшение $new_adj dB."
         lufs_after=$(echo "scale=3; $input_lufs + $new_adj" | bc -l)
         tp_after=$(echo "scale=3; $input_tp + $new_adj" | bc -l)
-        echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"$lufs_after\" tp=\"$tp_after\" status=\"🟡\""
-         filter="volume=${new_adj}dB"
-        filter="volume=${new_adj}dB"
+
+        # 👇 ДОБАВЛЕНО: если для соблюдения TP итог уходит ниже -15 LUFS — запускаем двухпроходный loudnorm
+        if (( $(echo "$lufs_after < -15" | bc -l)  )); then
+            echo "⚠️ Снижение для соблюдения TP опускает громкость ниже -15 LUFS (≈ ${lufs_after}) — запускаем двухпроходный loudnorm."
+            echo "###RESULT file=\"$file\" method=\"Двухпроход\" lufs=\"-15\" tp=\"-0.7\" status=\"🔴\""
+
+            json=$(ffmpeg -hide_banner -i "$file" -af "loudnorm=i=-15:lra=12:tp=-0.7:print_format=json" -f null - 2>&1)
+            measured_I=$(echo "$json" | awk -F'\"' '/\"input_i\"/ {print $4}')
+            measured_TP=$(echo "$json" | awk -F'\"' '/\"input_tp\"/ {print $4}')
+            measured_LRA=$(echo "$json" | awk -F'\"' '/\"input_lra\"/ {print $4}')
+            measured_thresh=$(echo "$json" | awk -F'\"' '/\"input_thresh\"/ {print $4}')
+            offset=$(echo "$json" | awk -F'\"' '/\"target_offset\"/ {print $4}')
+            filter="loudnorm=i=-15:lra=12:tp=-0.7:measured_I=${measured_I}:measured_TP=${measured_TP}:measured_LRA=${measured_LRA}:measured_thresh=${measured_thresh}:offset=${offset}:linear=true:print_format=summary"
+        else
+            # Иначе — допустимо линейно: фиксируем результат и даём фильтр volume
+            echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"$lufs_after\" tp=\"$tp_after\" status=\"🟡\""
+            filter="volume=${new_adj}dB"
+        fi
     else
         echo "✅ Снизили до -14 LUFS (${adj_14} dB), TP после = ${predTP_after_down14} dBTP."
         echo "###RESULT file=\"$file\" method=\"Линейно\" lufs=\"-14\" tp=\"$predTP_after_down14\" status=\"🟢\""
